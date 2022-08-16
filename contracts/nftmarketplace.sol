@@ -8,6 +8,8 @@ error NftMarketplace__PriceMustBeAboveZero();
 error NftMarketplace__NftNotApproved();
 error NftMarketplace__AlreadyListed();
 error NftMarketplace__NotOwner();
+error NftMarketplace__NotListed();
+error NftMarketplace__InvalidAmountSent();
 
 contract NftMarketplace {
 
@@ -16,9 +18,11 @@ contract NftMarketplace {
         address seller;
     }
     event ItemListed(address indexed seller, address indexed nftAddress, uint256 indexed tokenId, uint256 price);
+    event ItemBought(address indexed buyer, address indexed nftAddress, uint256 indexed tokenId, uint256 price);
 
     // Nft Contract address -> Nft tokenID -> Listing
     mapping (address => mapping (uint256 => Listing)) private listings;
+    mapping (address => uint256) private proceeds;
 
     modifier notListed (address nftAddress, uint256 tokenId, address owner) {
         Listing memory listing = listings[nftAddress][tokenId];
@@ -33,6 +37,14 @@ contract NftMarketplace {
         address owner = nft.ownerOf(tokenId);
         if (spender != owner) {
             revert NftMarketplace__NotOwner();
+        }
+        _;
+    }
+
+    modifier isListed (address nftAddress, uint256 tokenId) {
+        Listing memory listing = listings[nftAddress][tokenId];
+        if (listing.price == 0) {
+            revert NftMarketplace__NotListed();
         }
         _;
     }
@@ -57,7 +69,18 @@ contract NftMarketplace {
 
     }
 
-    function buyItem(address nftAddress, uint256 tokenId) external payable {
+    function buyItem(address nftAddress, uint256 tokenId) external payable isListed (nftAddress, tokenId) {
+        Listing memory listedItem = listings[nftAddress][tokenId];
+        if (listedItem.price > msg.value) {
+            revert NftMarketplace__InvalidAmountSent();
+        }
+
+        proceeds[listedItem.seller] += msg.value;
+        delete listings[nftAddress][tokenId];
+
+        IERC721 nft = IERC721(nftAddress);
+        nft.safeTransferFrom(listedItem.seller, msg.sender, tokenId);
+        emit ItemBought(msg.sender, nftAddress, tokenId, listedItem.price); 
+    }
 
     }
-}
